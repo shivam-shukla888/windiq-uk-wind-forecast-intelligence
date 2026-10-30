@@ -12,6 +12,8 @@ BASE_URL = "https://data.elexon.co.uk/bmrs/api/v1"
 PILOT_MONTH = "2026-01"
 UTC = timezone.utc
 
+_DATA_CACHE: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+
 
 def parse_utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -29,13 +31,20 @@ def validate_month(month: str) -> tuple[date, date]:
 
 def select_vintages(forecasts: list[dict[str, Any]], cutoff: str = "day-ahead") -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    custom_deadline = None
+    if cutoff != "day-ahead":
+        try:
+            custom_deadline = parse_utc(cutoff)
+        except Exception as exc:
+            raise ValueError(f"Invalid cutoff timestamp '{cutoff}': {exc}") from exc
+
     for row in forecasts:
         if row.get("startTime") is None or row.get("publishTime") is None:
             continue
         delivery = parse_utc(row["startTime"])
         published = parse_utc(row["publishTime"])
-        deadline = delivery - timedelta(hours=24) if cutoff == "day-ahead" else parse_utc(cutoff)
-        if published <= deadline:
+        deadline = delivery - timedelta(hours=24) if cutoff == "day-ahead" else custom_deadline
+        if deadline is not None and published <= deadline:
             grouped[delivery.isoformat()].append({**row, "startTime": delivery.isoformat(), "publishTime": published.isoformat()})
     selected = []
     for delivery, rows in grouped.items():
@@ -107,8 +116,11 @@ async def _get_json(client: httpx.AsyncClient, path: str, params: dict[str, str]
     return payload.get("data", payload) if isinstance(payload, dict) else payload
 
 
-async def fetch_month_data(month: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+async def fetch_month_data(month: str, force_refresh: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     first, end = validate_month(month)
+    if not force_refresh and month in _DATA_CACHE:
+        return _DATA_CACHE[month]
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(45.0), headers={"User-Agent": "WindIQ-pilot/1.0"}) as client:
         actual_tasks = []
         day = first
@@ -139,6 +151,8 @@ async def fetch_month_data(month: str) -> tuple[list[dict[str, Any]], list[dict[
                 if key not in seen_forecasts:
                     forecasts.append(row)
                     seen_forecasts.add(key)
+
+    _DATA_CACHE[month] = (forecasts, actuals)
     return forecasts, actuals
 
 
