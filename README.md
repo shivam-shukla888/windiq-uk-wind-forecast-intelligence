@@ -34,9 +34,14 @@ To run the services separately, use Python 3.11+ and Node.js 20+:
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+# In Command Prompt:
+.venv\Scripts\activate.bat
+# In PowerShell:
+.\.venv\Scripts\Activate.ps1
+# On Linux / macOS:
+# source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
 ```
 
 In a second terminal:
@@ -62,11 +67,12 @@ The pilot accepts January 2026 only. A custom cutoff is an ISO-8601 timestamp; a
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt
-pytest
+# With environment activated:
+python -m pip install -r requirements-dev.txt
+python -m pytest
 ```
 
-The tests cover vintage selection, timezone normalization, timestamp joins, and metric calculations. The frontend build is `npm run build` from `frontend`.
+The tests cover vintage selection, timezone normalization, timestamp joins, metric calculations, and validation rules. The frontend build is `npm run build` from `frontend`.
 
 ## Deployment configuration
 
