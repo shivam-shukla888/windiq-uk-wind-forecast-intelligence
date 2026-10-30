@@ -223,6 +223,55 @@ function App() {
     }
   }
 
+  const modalRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const triggerElementRef = useRef<HTMLElement | null>(null)
+
+  // Track triggering element when opening modal
+  const handleOpenModal = useCallback((row: RecordRow) => {
+    triggerElementRef.current = document.activeElement as HTMLElement | null
+    setSelectedInterval(row)
+  }, [])
+
+  // Focus management when modal opens or closes
+  useEffect(() => {
+    if (selectedInterval) {
+      const timer = setTimeout(() => {
+        closeButtonRef.current?.focus()
+      }, 40)
+      return () => clearTimeout(timer)
+    } else if (triggerElementRef.current) {
+      triggerElementRef.current.focus()
+    }
+  }, [selectedInterval])
+
+  // Focus trap and keyboard dismiss for modal dialog
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      setSelectedInterval(null)
+      return
+    }
+    if (e.key === 'Tab' && modalRef.current) {
+      const focusables = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [tabindex="0"]:not([disabled])'
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+  }
+
   // Close modal on Escape key
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -783,12 +832,12 @@ function App() {
 
                   <div className="chart-legend" aria-hidden="true">
                     <span>
-                      <i className="legend-line forecast-line" />
-                      Forecast (hourly)
+                      <i className="legend-dot forecast-dot" />
+                      Forecast points (hourly)
                     </span>
                     <span>
                       <i className="legend-line actual-line" />
-                      Actual (half-hourly)
+                      Actual line (half-hourly)
                     </span>
                     <span className="unit-label">MW</span>
                   </div>
@@ -853,65 +902,70 @@ function App() {
                         />
                       )}
 
-                      {/* Forecast generation line (connecting consecutive available hourly forecasts without interpolating gaps) */}
-                      {dayGridPeriods.some(p => p.forecastMW != null) && (
-                        <path
-                          d={dayGridPeriods
-                            .filter(p => p.forecastMW != null)
-                            .reduce((acc, p, idx, arr) => {
-                              const x = getX(p.period)
-                              const y = getY(p.forecastMW)!
-                              if (idx === 0) return `M ${x.toFixed(1)} ${y.toFixed(1)}`
-                              const prev = arr[idx - 1]
-                              // WINDFOR in Jan 2026 is hourly (every 2 periods). Connect consecutive forecast points with dashed line
-                              if (p.period - prev.period <= 2) {
-                                return `${acc} L ${x.toFixed(1)} ${y.toFixed(1)}`
-                              }
-                              return `${acc} M ${x.toFixed(1)} ${y.toFixed(1)}`
-                            }, '')}
-                          fill="none"
-                          stroke="#5275b8"
-                          strokeWidth="2.2"
-                          strokeDasharray="4 3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      )}
-
-                      {/* Data Point Dots positioned at actual delivery times */}
+                      {/* Discrete hourly forecast points with visible half-hourly gaps (no connecting line between hourly points) */}
                       {dayGridPeriods.map(p => {
                         const x = getX(p.period)
                         const yA = getY(p.actualMW)
                         const yF = getY(p.forecastMW)
+                        const isHovered = hoveredPoint?.period === p.period
+                        const pointLabel = `Settlement period ${p.period}, ${p.timeStr} UTC: Actual ${pretty(
+                          p.actualMW
+                        )} MW, Forecast ${p.forecastMW != null ? `${pretty(p.forecastMW)} MW` : 'No forecast published'}`
+
                         return (
-                          <g key={p.period} className="chart-point-group">
-                            {/* Hit-test area for hover and click */}
+                          <g
+                            key={p.period}
+                            className="chart-point-group"
+                            tabIndex={0}
+                            role="button"
+                            aria-label={pointLabel}
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={() =>
+                              setHoveredPoint({
+                                period: p.period,
+                                timeStr: p.timeStr,
+                                row: p.row,
+                                x,
+                                yF,
+                                yA,
+                              })
+                            }
+                            onFocus={() =>
+                              setHoveredPoint({
+                                period: p.period,
+                                timeStr: p.timeStr,
+                                row: p.row,
+                                x,
+                                yF,
+                                yA,
+                              })
+                            }
+                            onBlur={() => setHoveredPoint(null)}
+                            onKeyDown={e => {
+                              if ((e.key === 'Enter' || e.key === ' ') && p.row) {
+                                e.preventDefault()
+                                handleOpenModal(p.row)
+                              }
+                            }}
+                            onClick={() => p.row && handleOpenModal(p.row)}
+                          >
+                            {/* Hit-test area for hover, focus, and click */}
                             <rect
                               x={x - plotW / 96}
                               y={chartMargin.top}
                               width={plotW / 48}
                               height={plotH}
                               fill="transparent"
-                              style={{ cursor: 'pointer' }}
-                              onMouseEnter={() =>
-                                setHoveredPoint({
-                                  period: p.period,
-                                  timeStr: p.timeStr,
-                                  row: p.row,
-                                  x,
-                                  yF,
-                                  yA,
-                                })
-                              }
-                              onClick={() => p.row && setSelectedInterval(p.row)}
+                              style={{ pointerEvents: 'all', cursor: 'pointer' }}
+                              onClick={() => p.row && handleOpenModal(p.row)}
                             />
 
-                            {/* Actual Dot */}
+                            {/* Actual Dot (all 48 settlement periods) */}
                             {yA != null && (
                               <circle
                                 cx={x}
                                 cy={yA}
-                                r={hoveredPoint?.period === p.period ? 4.5 : 2.5}
+                                r={isHovered ? 4.5 : 2.5}
                                 fill="#17856b"
                                 stroke="#fff"
                                 strokeWidth="1"
@@ -919,15 +973,15 @@ function App() {
                               />
                             )}
 
-                            {/* Forecast Marker (only where forecast exists; gaps are left empty) */}
+                            {/* Forecast Marker: only where forecast exists (hourly); unmatched half-hour intervals are visibly missing */}
                             {yF != null && (
                               <circle
                                 cx={x}
                                 cy={yF}
-                                r={hoveredPoint?.period === p.period ? 5 : 3}
+                                r={isHovered ? 5.5 : 3.5}
                                 fill="#5275b8"
                                 stroke="#fff"
-                                strokeWidth="1"
+                                strokeWidth="1.5"
                                 className="chart-dot-forecast"
                               />
                             )}
@@ -967,7 +1021,7 @@ function App() {
                             <button
                               type="button"
                               className="tooltip-inspect-link"
-                              onClick={() => hoveredPoint.row && setSelectedInterval(hoveredPoint.row)}
+                              onClick={() => hoveredPoint.row && handleOpenModal(hoveredPoint.row)}
                             >
                               Inspect interval →
                             </button>
@@ -1011,7 +1065,7 @@ function App() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSelectedInterval(dayRows[0] || null)}
+                      onClick={() => dayRows[0] && handleOpenModal(dayRows[0])}
                       disabled={!dayRows.length}
                       aria-label="Inspect first settlement interval for selected day"
                     >
@@ -1059,8 +1113,9 @@ function App() {
                           const rows = records
                             .filter(r => r.settlementDate === dateKey)
                             .sort((a, b) => (a.settlementPeriod || 0) - (b.settlementPeriod || 0))
+                          const isSelectedDay = selectedDay === dateKey
                           return (
-                            <div className="heat-col" key={d}>
+                            <div className={`heat-col ${isSelectedDay ? 'selected-day-col' : ''}`} key={d}>
                               {Array.from({ length: 48 }, (_, p) => {
                                 const r = rows[p]
                                 const isMatched = r?.actualMW != null && r?.forecastMW != null
@@ -1088,7 +1143,7 @@ function App() {
                                     aria-label={label}
                                     title={label}
                                     className={`heat-cell level-${level}`}
-                                    onClick={() => r && setSelectedInterval(r)}
+                                    onClick={() => r && handleOpenModal(r)}
                                   />
                                 )
                               })}
@@ -1333,14 +1388,14 @@ function App() {
                     {shown.map((r, i) => (
                       <tr
                         key={r.startTime}
-                        onClick={() => setSelectedInterval(r)}
+                        onClick={() => handleOpenModal(r)}
                         tabIndex={0}
                         role="button"
                         aria-label={`Inspect delivery interval ${r.settlementDate} Period ${r.settlementPeriod}`}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault()
-                            setSelectedInterval(r)
+                            handleOpenModal(r)
                           }
                         }}
                       >
@@ -1386,7 +1441,7 @@ function App() {
                             className="row-inspect-btn"
                             onClick={e => {
                               e.stopPropagation()
-                              setSelectedInterval(r)
+                              handleOpenModal(r)
                             }}
                             aria-label={`Inspect details for ${r.settlementDate} SP ${r.settlementPeriod}`}
                           >
@@ -1469,6 +1524,7 @@ function App() {
                           onClick={() => {
                             setSelectedDay(d.dateStr)
                             setHeaderDateSelection(d.dateStr)
+                            setTab('Overview')
                           }}
                         >
                           <span className="sr-only">{titleStr}</span>
@@ -1516,9 +1572,21 @@ function App() {
                         <tr
                           key={d.day}
                           className={selectedDay === d.dateStr ? 'highlight-row' : ''}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`View generation curve for ${d.day} January 2026`}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedDay(d.dateStr)
+                              setHeaderDateSelection(d.dateStr)
+                              setTab('Overview')
+                            }
+                          }}
                           onClick={() => {
                             setSelectedDay(d.dateStr)
                             setHeaderDateSelection(d.dateStr)
+                            setTab('Overview')
                           }}
                         >
                           <td>
@@ -1666,13 +1734,16 @@ function App() {
           className="modal-backdrop"
           onClick={() => setSelectedInterval(null)}
           role="presentation"
+          onKeyDown={handleModalKeyDown}
         >
           <div
+            ref={modalRef}
             className="detail-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-interval-heading"
             onClick={e => e.stopPropagation()}
+            tabIndex={-1}
           >
             <div className="modal-head">
               <div>
@@ -1680,6 +1751,7 @@ function App() {
                 <h2 id="modal-interval-heading">{formatFullUtcDate(selectedInterval.startTime)}</h2>
               </div>
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={() => setSelectedInterval(null)}
                 aria-label="Close interval details dialog"

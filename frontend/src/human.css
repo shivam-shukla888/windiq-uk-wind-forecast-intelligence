@@ -101,6 +101,33 @@
   border-radius: 2px;
 }
 
+/* Legend dots for discrete forecast points */
+.legend-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.forecast-dot {
+  background: #5275b8;
+}
+
+/* Selected Day Column Highlighting in 31x48 Heatmap */
+.heat-col.selected-day-col {
+  outline: 1.5px solid #28684b;
+  outline-offset: 1px;
+  border-radius: 2px;
+  background: rgba(40, 104, 75, 0.06);
+}
+
+/* Chart Point Group keyboard focus state */
+.chart-point-group:focus-visible {
+  outline: 2px solid #28684b;
+  outline-offset: 2px;
+}
+
 /* Interactive Daily Bars in Accuracy View */
 .daily-bar-button {
   width: min(100%, 14px);
